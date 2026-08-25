@@ -84,7 +84,7 @@ def get_fundus_transforms(
 
     # 2. Gaussian Graham filter
     if apply_graham:
-        transform_list.append(transforms.Lambda(lambda img: apply_graham_gaussian_filter(img)))
+        transform_list.append(transforms.Lambda(apply_graham_gaussian_filter))
 
     # 3. Tensor conversion and standard ImageNet normalization
     transform_list.append(transforms.ToTensor())
@@ -342,6 +342,26 @@ def create_synthetic_fundus_dataset(
     return str(base_dir)
 
 
+class TransformedSubset(Dataset):
+    """
+    Applies custom dataset transformation to indexed subsets without dataset duplication.
+    """
+    def __init__(self, full_ds, indices, tf):
+        self.full_ds = full_ds
+        self.indices = indices
+        self.tf = tf
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        orig_idx = self.indices[idx]
+        img_path, label = self.full_ds.samples[orig_idx]
+        image = Image.open(img_path).convert("RGB")
+        image = self.tf(image)
+        return image, label
+
+
 def get_dataloaders(
     dataset_dir: str,
     batch_size: int = 16,
@@ -375,38 +395,26 @@ def get_dataloaders(
     train_transform = get_fundus_transforms(image_size=image_size, is_training=True, apply_graham=apply_graham)
     val_transform = get_fundus_transforms(image_size=image_size, is_training=False, apply_graham=apply_graham)
 
-    class TransformedSubset(Dataset):
-        def __init__(self, full_ds, indices, tf):
-            self.full_ds = full_ds
-            self.indices = indices
-            self.tf = tf
-
-        def __len__(self):
-            return len(self.indices)
-
-        def __getitem__(self, idx):
-            orig_idx = self.indices[idx]
-            img_path, label = self.full_ds.samples[orig_idx]
-            image = Image.open(img_path).convert("RGB")
-            image = self.tf(image)
-            return image, label
-
     train_ds = TransformedSubset(full_dataset, train_indices, train_transform)
     val_ds = TransformedSubset(full_dataset, val_indices, val_transform)
+
+    use_cuda = torch.cuda.is_available()
 
     train_loader = DataLoader(
         train_ds,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=use_cuda,
+        persistent_workers=(num_workers > 0)
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=use_cuda,
+        persistent_workers=(num_workers > 0)
     )
 
     return train_loader, val_loader

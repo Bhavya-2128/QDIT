@@ -46,9 +46,19 @@ def train_model(
 ) -> Tuple[nn.Module, Dict[str, List[float]], Dict]:
     """
     Executes the training and validation loops as specified in Section 4.6 of the paper.
+    Fully optimized for NVIDIA GPU accelerators (T4, P100, V100, A100, RTX).
     """
-    device = torch.device(config.device if torch.cuda.is_available() and config.device == "cuda" else "cpu")
-    print(f"🚀 Training on device: {device}")
+    use_cuda = torch.cuda.is_available() and config.device == "cuda"
+    device = torch.device("cuda" if use_cuda else "cpu")
+
+    if use_cuda:
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        cuda_version = torch.version.cuda
+        print(f"🚀 [FULL GPU MODE] Active Device: {gpu_name} ({gpu_vram:.1f} GB VRAM) | CUDA: {cuda_version}")
+        torch.backends.cudnn.benchmark = True
+    else:
+        print("💻 Running on CPU device.")
 
     model.to(device)
 
@@ -69,6 +79,9 @@ def train_model(
         step_size=config.lr_decay_step,
         gamma=config.lr_decay_gamma
     )
+
+    # Automatic mixed precision scaler for CUDA
+    scaler = torch.amp.GradScaler('cuda', enabled=use_cuda)
 
     history = {
         "train_loss": [],
@@ -95,18 +108,20 @@ def train_model(
         epoch_start = time.time()
 
         for inputs, targets in train_loader:
-            inputs = inputs.to(device)
-            targets = targets.to(device)
+            inputs = inputs.to(device, non_blocking=True)
+            targets = targets.to(device, non_blocking=True)
 
-            optimizer.zero_grad()
+            optimizer.zero_grad(set_to_none=True)
 
-            # Forward pass through hybrid CQ model
-            logits, _, _ = model(inputs)
-            loss = criterion(logits, targets)
+            # Forward pass through hybrid CQ model with mixed precision on GPU
+            with torch.amp.autocast('cuda', enabled=use_cuda):
+                logits, _, _ = model(inputs)
+                loss = criterion(logits, targets)
 
             # Backward pass & quantum variational parameter updates
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
 
             # Track statistics
             preds = torch.argmax(logits, dim=-1)

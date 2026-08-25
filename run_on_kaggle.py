@@ -45,6 +45,13 @@ def run_kaggle_experiment(
     print("   Paper: arXiv:2405.01734v1")
     print("=" * 80)
 
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+        print(f"🚀 [KAGGLE GPU ACCELERATION ENABLED] Using {gpu_name} ({gpu_vram:.1f} GB VRAM)")
+    else:
+        print("⚠️  [NOTICE] Running on CPU. For faster training, enable 'GPU T4 x2' or 'GPU P100' in Kaggle Notebook Settings.")
+
     # 1. Resolve Dataset
     print(f"\n📂 Resolving Kaggle dataset: {dataset_slug}")
     dataset_dir = resolve_dataset_path(dataset_slug)

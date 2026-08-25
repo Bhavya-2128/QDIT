@@ -48,34 +48,34 @@ class FastTorchQuantumCircuit(nn.Module):
         self._init_quantum_gate_matrices()
 
     def _init_quantum_gate_matrices(self):
-        # 1-Qubit matrices
-        self.H = (1.0 / math.sqrt(2.0)) * torch.tensor([[1.0, 1.0], [1.0, -1.0]], dtype=torch.complex64)
-        self.S = torch.tensor([[1.0, 0.0], [0.0, 1.0j]], dtype=torch.complex64)
-        self.S_dagger = torch.tensor([[1.0, 0.0], [0.0, -1.0j]], dtype=torch.complex64)
-        self.I1 = torch.eye(2, dtype=torch.complex64)
-        self.sigma_z = torch.tensor([[1.0, 0.0], [0.0, -1.0]], dtype=torch.complex64)
+        # 1-Qubit matrices registered as GPU buffers
+        self.register_buffer("H", (1.0 / math.sqrt(2.0)) * torch.tensor([[1.0, 1.0], [1.0, -1.0]], dtype=torch.complex64))
+        self.register_buffer("S", torch.tensor([[1.0, 0.0], [0.0, 1.0j]], dtype=torch.complex64))
+        self.register_buffer("S_dagger", torch.tensor([[1.0, 0.0], [0.0, -1.0j]], dtype=torch.complex64))
+        self.register_buffer("I1", torch.eye(2, dtype=torch.complex64))
+        self.register_buffer("sigma_z", torch.tensor([[1.0, 0.0], [0.0, -1.0]], dtype=torch.complex64))
 
-        # 2-Qubit matrices
-        self.cnot_matrix = torch.tensor([
+        # 2-Qubit matrices registered as GPU buffers
+        self.register_buffer("cnot_matrix", torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 0, 1],
             [0, 0, 1, 0]
-        ], dtype=torch.complex64)
+        ], dtype=torch.complex64))
 
-        self.cz_matrix = torch.tensor([
+        self.register_buffer("cz_matrix", torch.tensor([
             [1, 0, 0, 0],
             [0, 1, 0, 0],
             [0, 0, 1, 0],
             [0, 0, 0, -1]
-        ], dtype=torch.complex64)
+        ], dtype=torch.complex64))
 
-        self.swap_matrix = torch.tensor([
+        self.register_buffer("swap_matrix", torch.tensor([
             [1, 0, 0, 0],
             [0, 0, 1, 0],
             [0, 1, 0, 0],
             [0, 0, 0, 1]
-        ], dtype=torch.complex64)
+        ], dtype=torch.complex64))
 
     def _rx_matrix(self, theta: torch.Tensor) -> torch.Tensor:
         """Rx(theta) = cos(theta/2) I - i sin(theta/2) sigma_x"""
@@ -179,25 +179,20 @@ class FastTorchQuantumCircuit(nn.Module):
         state = torch.zeros(batch_size, *(2 for _ in range(self.n_qubits)), dtype=torch.complex64, device=device)
         state[(slice(None),) + (0,) * self.n_qubits] = 1.0 + 0.0j
 
-        # Move gates to target device
-        H = self.H.to(device)
-        S = self.S.to(device)
-        S_dagger = self.S_dagger.to(device)
-
         # 1. State preparation / Embedding Layer
         for q in range(self.n_qubits):
             if self.embedding_type == EmbeddingGateType.HADAMARD:
-                state = self._apply_1q_gate(state, H, q)
+                state = self._apply_1q_gate(state, self.H, q)
                 ry_gate = self._ry_matrix(x[:, q])
                 state = self._apply_batched_1q_gate(state, ry_gate, q)
             elif self.embedding_type == EmbeddingGateType.S_PHASE:
-                state = self._apply_1q_gate(state, S, q)
-                state = self._apply_1q_gate(state, H, q)
+                state = self._apply_1q_gate(state, self.S, q)
+                state = self._apply_1q_gate(state, self.H, q)
                 ry_gate = self._ry_matrix(x[:, q])
                 state = self._apply_batched_1q_gate(state, ry_gate, q)
             elif self.embedding_type == EmbeddingGateType.S_DAGGER:
-                state = self._apply_1q_gate(state, S_dagger, q)
-                state = self._apply_1q_gate(state, H, q)
+                state = self._apply_1q_gate(state, self.S_dagger, q)
+                state = self._apply_1q_gate(state, self.H, q)
                 ry_gate = self._ry_matrix(x[:, q])
                 state = self._apply_batched_1q_gate(state, ry_gate, q)
             elif self.embedding_type == EmbeddingGateType.RX:
@@ -213,31 +208,31 @@ class FastTorchQuantumCircuit(nn.Module):
             for q in range(self.n_qubits):
                 target_q = (q + 1) % self.n_qubits
                 if self.entangling_type == EntanglingGateType.CNOT:
-                    state = self._apply_2q_gate(state, self.cnot_matrix.to(device), q, target_q)
+                    state = self._apply_2q_gate(state, self.cnot_matrix, q, target_q)
                 elif self.entangling_type == EntanglingGateType.CZ:
-                    state = self._apply_2q_gate(state, self.cz_matrix.to(device), q, target_q)
+                    state = self._apply_2q_gate(state, self.cz_matrix, q, target_q)
                 elif self.entangling_type == EntanglingGateType.SWAP:
-                    state = self._apply_2q_gate(state, self.swap_matrix.to(device), q, target_q)
+                    state = self._apply_2q_gate(state, self.swap_matrix, q, target_q)
                 elif self.entangling_type == EntanglingGateType.CRX:
-                    crx = self._make_crx(self.weights[layer, q]).to(device)
+                    crx = self._make_crx(self.weights[layer, q])
                     state = self._apply_2q_gate(state, crx, q, target_q)
                 elif self.entangling_type == EntanglingGateType.CRY:
-                    cry = self._make_cry(self.weights[layer, q]).to(device)
+                    cry = self._make_cry(self.weights[layer, q])
                     state = self._apply_2q_gate(state, cry, q, target_q)
                 elif self.entangling_type == EntanglingGateType.CRZ:
-                    crz = self._make_crz(self.weights[layer, q]).to(device)
+                    crz = self._make_crz(self.weights[layer, q])
                     state = self._apply_2q_gate(state, crz, q, target_q)
 
             # Parameterized RY rotations
             for q in range(self.n_qubits):
                 angle = self.weights[layer, q]
-                ry_fixed = self._ry_single(angle).to(device)
+                ry_fixed = self._ry_single(angle)
                 state = self._apply_1q_gate(state, ry_fixed, q)
 
         # 3. Measurement Layer: Pauli-Z expectation values
         expvals = []
         for q in range(self.n_qubits):
-            z_state = self._apply_1q_gate(state, self.sigma_z.to(device), q)
+            z_state = self._apply_1q_gate(state, self.sigma_z, q)
             # Expectation value: Re(<state | Z | state>)
             dims = tuple(range(1, self.n_qubits + 1))
             expval = torch.real(torch.sum(torch.conj(state) * z_state, dim=dims))
