@@ -9,6 +9,8 @@ Implements:
 - Checkpoint management and training history tracking
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import sys
@@ -17,7 +19,7 @@ from pathlib import Path
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import torch
 import torch.nn as nn
 from torch.optim.lr_scheduler import StepLR

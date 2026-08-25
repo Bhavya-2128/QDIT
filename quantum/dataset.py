@@ -8,10 +8,12 @@ Implements:
 - Built-in Synthetic Fundus Image Generator for offline experimentation and testing
 """
 
+from __future__ import annotations
+
 import os
 import random
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union, Any
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 import torch

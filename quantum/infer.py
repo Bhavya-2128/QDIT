@@ -3,6 +3,8 @@ Inference Module & Clinical Diagnostic API for Quantum Transfer Learning DR Dete
 Paper: "Diabetic Retinopathy Detection Using Quantum Transfer Learning" (arXiv:2405.01734v1)
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import sys
@@ -11,7 +13,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union, Any
 import numpy as np
 from PIL import Image
 import torch

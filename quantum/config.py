@@ -3,9 +3,11 @@ Configuration and Hyperparameter Settings for Quantum Transfer Learning
 Paper: "Diabetic Retinopathy Detection Using Quantum Transfer Learning" (arXiv:2405.01734v1)
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 
 
 class BackboneType(str, Enum):

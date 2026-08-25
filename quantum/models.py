@@ -8,8 +8,10 @@ Implements:
 - Fast PyTorch Differentiable Quantum Simulator for high-throughput GPU/CPU training
 """
 
+from __future__ import annotations
+
 import math
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import pennylane as qml
 import torch

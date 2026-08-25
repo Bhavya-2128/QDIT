@@ -7,7 +7,9 @@ Implements:
 - Multiclass Confusion Matrix, Macro/Weighted Metrics, and Stage-wise breakdowns
 """
 
-from typing import Dict, List, Optional, Tuple, Union
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Tuple, Union, Any
 import numpy as np
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
 import torch

@@ -7,9 +7,12 @@ It automatically locates or downloads dataset 'bhavyasanghavi2348/data-qdit',
 trains the hybrid quantum model, evaluates performance metrics, and saves model weights.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
 import torch
 
 # Ensure repository root is on sys.path

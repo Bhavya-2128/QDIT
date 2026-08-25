@@ -6,6 +6,9 @@ Implements parameterized quantum circuits, embedding layers (Hadamard, S, S†, 
 entangling patterns (CNOT, CZ, SWAP, CRX, CRY, CRZ), and Pauli-Z measurements.
 """
 
+from __future__ import annotations
+
+import sys
 from typing import Callable, Dict, List, Optional, Tuple, Any
 import numpy as np
 import pennylane as qml
