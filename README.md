@@ -24,6 +24,8 @@ Run directly on Kaggle with dataset [`bhavyasanghavi2348/data-qdit`](https://www
 
 Or open [`kaggle_qdit_runner.ipynb`](kaggle_qdit_runner.ipynb) in Kaggle!
 
+📖 **For detailed step-by-step instructions with screenshots and troubleshooting, see the [Kaggle Execution Guide](KAGGLE_EXECUTION_GUIDE.md).**
+
 ---
 
 ## 🔬 Local Quick Start
