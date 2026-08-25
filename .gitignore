@@ -1,2 +1,25 @@
-train&test/
-train&test.zip/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+env/
+venv/
+ENV/
+
+# Checkpoints and models
+*.pt
+*.pth
+*.onnx
+
+# Data directory
+data/
+datasets/
+*.csv.gz
+
+# IDE and OS
+.DS_Store
+.idea/
+.vscode/
