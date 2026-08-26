@@ -155,6 +155,13 @@ TABLE_5_CONFIGS = {
             entangling_gate=EntanglingGateType.CNOT
         )
     ),
+    "ry_cnot": ModelConfig(
+        backbone=BackboneType.RESNET18,
+        quantum_circuit=QuantumCircuitConfig(
+            embedding_gate=EmbeddingGateType.RY,
+            entangling_gate=EntanglingGateType.CNOT
+        )
+    ),
     "hadamard_cz": ModelConfig(
         backbone=BackboneType.RESNET18,
         quantum_circuit=QuantumCircuitConfig(
@@ -181,6 +188,20 @@ TABLE_5_CONFIGS = {
         quantum_circuit=QuantumCircuitConfig(
             embedding_gate=EmbeddingGateType.RX,
             entangling_gate=EntanglingGateType.CRX
+        )
+    ),
+    "ry_cry": ModelConfig(
+        backbone=BackboneType.RESNET18,
+        quantum_circuit=QuantumCircuitConfig(
+            embedding_gate=EmbeddingGateType.RY,
+            entangling_gate=EntanglingGateType.CRY
+        )
+    ),
+    "hadamard_crz": ModelConfig(
+        backbone=BackboneType.RESNET18,
+        quantum_circuit=QuantumCircuitConfig(
+            embedding_gate=EmbeddingGateType.HADAMARD,
+            entangling_gate=EntanglingGateType.CRZ
         )
     ),
 }

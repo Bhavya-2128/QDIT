@@ -46,7 +46,7 @@ In a new code cell in your Kaggle notebook, paste and run the following code:
 !pip install -q pennylane kagglehub torchvision scikit-learn pandas matplotlib pillow
 
 # -------------------------------------------------------------
-# 3. Train the Full Quantum Model on your Kaggle Dataset
+# 3. Option A: Train Single Selected Configuration
 # -------------------------------------------------------------
 from run_on_kaggle import run_kaggle_experiment
 
@@ -56,10 +56,26 @@ trained_model, history, metrics = run_kaggle_experiment(
     embedding_gate="hadamard",      # Options: hadamard, s_phase, s_dagger, rx, ry
     entangling_gate="cnot",         # Options: cnot, cz, swap, crx, cry, crz
     epochs=30,                      # Training epochs
-    batch_size=16,                  # Batch size
+    batch_size=32,                  # Fast GPU batch size
     learning_rate=1e-3,             # Initial learning rate
+    fine_tune_backbone=True,        # Fine-tune layer4 for high DR lesion sensitivity
+    loss_type="focal",              # Focal loss to maximize F1-score
     save_path="/kaggle/working/quantum_dr_model.pt"
 )
+
+# -------------------------------------------------------------
+# 4. Option B: Run ALL Paper Combinations (Table 4 & Table 5) Sequentially
+# -------------------------------------------------------------
+# from run_on_kaggle import run_all_paper_combinations
+#
+# summary_table = run_all_paper_combinations(
+#     dataset_slug="bhavyasanghavi2348/data-qdit",
+#     experiment_type="all",        # "table4" (6 Backbones), "table5" (11 Gate Combos), or "all"
+#     epochs=15,                    # Epochs per model
+#     batch_size=32,
+#     fine_tune_backbone=True,
+#     loss_type="focal"
+# )
 ```
 
 ---

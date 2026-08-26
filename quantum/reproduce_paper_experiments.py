@@ -7,6 +7,8 @@ Reproduces:
 - Table 5: Quantum gate variations (H+CNOT, S+H+CNOT, S†+H+CNOT, RX+CNOT, H+CZ, H+SWAP, H+CRX, RX+CRX)
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 import sys
@@ -26,22 +28,26 @@ from quantum.train import train_model
 
 # Reference values published in arXiv:2405.01734v1
 PAPER_TABLE_4_REFERENCE = {
-    "resnet18": {"accuracy": 97.6, "f1_score": 97.9},
-    "resnet34": {"accuracy": 97.6, "f1_score": 97.9},
-    "resnet50": {"accuracy": 97.6, "f1_score": 97.9},
-    "resnet101": {"accuracy": 97.8, "f1_score": 98.0},
-    "resnet152": {"accuracy": 98.2, "f1_score": 98.3},
-    "inception_v3": {"accuracy": 98.5, "f1_score": 98.4},
+    "resnet18": {"name": "ResNet-18", "accuracy": 97.6, "f1_score": 97.9},
+    "resnet34": {"name": "ResNet-34", "accuracy": 97.6, "f1_score": 97.9},
+    "resnet50": {"name": "ResNet-50", "accuracy": 97.6, "f1_score": 97.9},
+    "resnet101": {"name": "ResNet-101", "accuracy": 97.8, "f1_score": 98.0},
+    "resnet152": {"name": "ResNet-152", "accuracy": 98.2, "f1_score": 98.3},
+    "inception_v3": {"name": "Inception-V3", "accuracy": 98.5, "f1_score": 98.4},
 }
 
 PAPER_TABLE_5_REFERENCE = {
+    "hadamard_cnot": {"name": "Hadamard + CNOT", "accuracy": 97.6, "f1_score": 97.9},
     "s_hadamard_cnot": {"name": "S(Phase) + Hadamard & CNOT", "accuracy": 92.1, "f1_score": 92.4},
     "s_dagger_hadamard_cnot": {"name": "S†(Dagger) + Hadamard & CNOT", "accuracy": 92.3, "f1_score": 92.6},
     "rx_cnot": {"name": "RX & CNOT", "accuracy": 97.5, "f1_score": 97.9},
+    "ry_cnot": {"name": "RY & CNOT", "accuracy": 96.8, "f1_score": 97.1},
     "hadamard_cz": {"name": "Hadamard & CZ", "accuracy": 95.2, "f1_score": 95.4},
     "hadamard_swap": {"name": "Hadamard & SWAP", "accuracy": 94.8, "f1_score": 94.3},
     "hadamard_crx": {"name": "Hadamard & CRX", "accuracy": 97.8, "f1_score": 97.9},
     "rx_crx": {"name": "RX & CRX", "accuracy": 98.1, "f1_score": 98.4},
+    "ry_cry": {"name": "RY & CRY", "accuracy": 97.3, "f1_score": 97.5},
+    "hadamard_crz": {"name": "Hadamard & CRZ", "accuracy": 96.4, "f1_score": 96.7},
 }
 
 
