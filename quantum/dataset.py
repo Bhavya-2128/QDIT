@@ -15,7 +15,7 @@ import random
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union, Any
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 import torch
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
@@ -26,44 +26,71 @@ def apply_graham_gaussian_filter(
     sigma: int = 10,
     alpha: float = 4.0,
     beta: float = -4.0,
-    gamma: float = 128.0
+    gamma: float = 128.0,
+    auto_crop: bool = True,
+    enhance_contrast: bool = True
 ) -> Image.Image:
     """
-    Applies Ben Graham's Gaussian Filter preprocessing commonly used in
-    APTOS 2019 and Kaggle DR competitions (Section 4.2 of paper).
-    Equation: I_filtered = alpha * Image + beta * GaussianBlur(Image, sigma) + gamma
-
-    Args:
-        image: PIL RGB image of eye retina.
-        sigma: Gaussian blur radius.
-        alpha: Weight for original image.
-        beta: Weight for blurred image.
-        gamma: Intensity offset.
-
-    Returns:
-        Filtered and contrast-enhanced PIL Image.
+    Robust multi-format fundus preprocessing pipeline supporting RGB, Grayscale,
+    RGBA, and mixed retina image distributions (Section 4.2 of paper):
+    1. Mode normalization (safely standardizes L/RGBA/CMYK -> 3-channel RGB).
+    2. Auto-cropping outer black boundary borders around the retinal FOV.
+    3. Adaptive contrast enhancement (equalizes illumination across grayscale & RGB).
+    4. Ben Graham's Gaussian filter subtraction: I_filtered = alpha*I + beta*Blur(I) + gamma.
+    5. Circular boundary mask preserving clean retinal disk.
     """
-    img_np = np.array(image, dtype=np.float32)
+    # 1. Standardize image mode to RGB
+    if image.mode != "RGB":
+        image = image.convert("RGB")
 
-    # Compute Gaussian blur
-    blurred_img = image.filter(ImageFilter.GaussianBlur(radius=sigma))
-    blurred_np = np.array(blurred_img, dtype=np.float32)
+    img_np = np.array(image, dtype=np.uint8)
 
-    # Weighted blend to enhance retinal lesions (exudates, hemorrhages, microaneurysms)
-    filtered_np = alpha * img_np + beta * blurred_np + gamma
-    filtered_np = np.clip(filtered_np, 0, 255).astype(np.uint8)
+    # 2. Auto-crop black FOV border margin
+    if auto_crop and img_np.ndim == 3:
+        gray = np.mean(img_np, axis=-1)
+        mask = gray > 10  # Detect non-background pixels
+        if np.any(mask):
+            rows = np.any(mask, axis=1)
+            cols = np.any(mask, axis=0)
+            rmin, rmax = np.where(rows)[0][[0, -1]]
+            cmin, cmax = np.where(cols)[0][[0, -1]]
+            h, w = gray.shape
+            rmin = max(0, rmin - 2)
+            rmax = min(h, rmax + 3)
+            cmin = max(0, cmin - 2)
+            cmax = min(w, cmax + 3)
+            if (rmax - rmin > 30) and (cmax - cmin > 30):
+                img_np = img_np[rmin:rmax, cmin:cmax]
 
-    # Circular mask to preserve retina boundary and eliminate outer boundary artifacts
+    img_pil = Image.fromarray(img_np)
+
+    # 3. Contrast normalization for mixed grayscale / low-contrast fundus scans
+    if enhance_contrast:
+        img_pil = ImageOps.autocontrast(img_pil, cutoff=1)
+
+    # 4. Ben Graham's Gaussian Filter
+    img_f = np.array(img_pil, dtype=np.float32)
+    blurred_pil = img_pil.filter(ImageFilter.GaussianBlur(radius=sigma))
+    blurred_f = np.array(blurred_pil, dtype=np.float32)
+
+    # Blend to highlight microaneurysms, hemorrhages, and exudates
+    filtered_f = alpha * img_f + beta * blurred_f + gamma
+    filtered_np = np.clip(filtered_f, 0, 255).astype(np.uint8)
+
+    # 5. Circular mask to eliminate outer boundary noise
     h, w, _ = filtered_np.shape
     center_x, center_y = w // 2, h // 2
-    radius = min(center_x, center_y) * 0.95
+    radius = int(min(center_x, center_y) * 0.96)
     y, x = np.ogrid[:h, :w]
-    mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius ** 2
+    circ_mask = ((x - center_x) ** 2 + (y - center_y) ** 2) <= radius ** 2
+    filtered_np[~circ_mask] = 0
 
-    # Black background outside circular FOV
-    filtered_np[~mask] = 0
+    filtered_pil = Image.fromarray(filtered_np)
+    # Ensure final dimensions strictly match input size
+    if filtered_pil.size != image.size:
+        filtered_pil = filtered_pil.resize(image.size, Image.BILINEAR)
 
-    return Image.fromarray(filtered_np)
+    return filtered_pil
 
 
 def get_fundus_transforms(
@@ -72,7 +99,7 @@ def get_fundus_transforms(
     apply_graham: bool = True
 ) -> transforms.Compose:
     """
-    Constructs torchvision transform pipeline including resize, optional Graham filter,
+    Constructs torchvision transform pipeline including resize, robust Graham filter,
     data augmentations, and ImageNet tensor normalization.
     """
     transform_list = []
@@ -82,9 +109,10 @@ def get_fundus_transforms(
     if is_training:
         transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
         transform_list.append(transforms.RandomVerticalFlip(p=0.5))
-        transform_list.append(transforms.RandomRotation(degrees=15))
+        transform_list.append(transforms.RandomRotation(degrees=20))
+        transform_list.append(transforms.ColorJitter(brightness=0.15, contrast=0.15))
 
-    # 2. Gaussian Graham filter
+    # 2. Gaussian Graham filter with contrast normalization & auto-cropping
     if apply_graham:
         transform_list.append(transforms.Lambda(apply_graham_gaussian_filter))
 

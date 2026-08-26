@@ -39,13 +39,15 @@ def run_kaggle_experiment(
     embedding_gate: str = "hadamard",
     entangling_gate: str = "cnot",
     epochs: int = 30,
-    batch_size: int = 16,
+    batch_size: int = 32,
     learning_rate: float = 1e-3,
+    fine_tune_backbone: bool = True,
+    loss_type: str = "focal",
     save_path: str = "/kaggle/working/quantum_dr_model.pt"
 ):
     print("=" * 80)
     print("🌟 QDIT: Quantum Transfer Learning for Diabetic Retinopathy Detection")
-    print("   Paper: arXiv:2405.01734v1")
+    print("   Paper: arXiv:2405.01734v1 (Enhanced Multi-Format & Deep CQ Architecture)")
     print("=" * 80)
 
     if torch.cuda.is_available():
@@ -74,18 +76,23 @@ def run_kaggle_experiment(
 
     model_cfg = ModelConfig(
         backbone=BackboneType(backbone),
-        quantum_circuit=circuit_cfg
+        quantum_circuit=circuit_cfg,
+        freeze_backbone=not fine_tune_backbone,
+        unfreeze_last_n_layers=1 if fine_tune_backbone else 0,
+        enhanced_projection=True
     )
 
     train_cfg = TrainingConfig(
         batch_size=batch_size,
         epochs=epochs,
         learning_rate=learning_rate,
+        loss_type=loss_type,
+        backbone_lr_ratio=0.1 if fine_tune_backbone else 0.0,
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
 
     # 3. Create DataLoaders
-    print("\n🔄 Initializing Graham-filtered Fundus DataLoaders...")
+    print("\n🔄 Initializing Graham-filtered Fundus DataLoaders (with multi-format auto-cropping & contrast normalization)...")
     train_loader, val_loader = get_dataloaders(
         dataset_dir=dataset_dir,
         batch_size=train_cfg.batch_size,

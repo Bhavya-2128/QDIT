@@ -39,6 +39,24 @@ from quantum.evaluate import evaluate_model, format_metrics_table
 from quantum.models import QuantumTransferLearningDR
 
 
+class FocalLoss(nn.Module):
+    """
+    Focal Loss with Label Smoothing for multi-class Diabetic Retinopathy classification.
+    Focuses gradient updates on hard borderline stages (Mild & Moderate DR) to maximize macro F1-score.
+    """
+    def __init__(self, gamma: float = 1.5, label_smoothing: float = 0.05, weight: Optional[torch.Tensor] = None):
+        super().__init__()
+        self.gamma = gamma
+        self.label_smoothing = label_smoothing
+        self.ce = nn.CrossEntropyLoss(weight=weight, label_smoothing=label_smoothing, reduction='none')
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        ce_loss = self.ce(logits, targets)
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1.0 - pt) ** self.gamma) * ce_loss
+        return focal_loss.mean()
+
+
 def train_model(
     model: nn.Module,
     train_loader: DataLoader,
@@ -47,8 +65,8 @@ def train_model(
     save_path: Optional[str] = None
 ) -> Tuple[nn.Module, Dict[str, List[float]], Dict]:
     """
-    Executes the training and validation loops as specified in Section 4.6 of the paper.
-    Fully optimized for NVIDIA GPU accelerators (T4, P100, V100, A100, RTX).
+    Executes the training and validation loops with GPU mixed-precision,
+    differential optimizer learning rates, and Focal Loss / Label Smoothing.
     """
     use_cuda = torch.cuda.is_available() and config.device == "cuda"
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -64,16 +82,55 @@ def train_model(
 
     model.to(device)
 
-    # 1. Loss function: Cross-Entropy Loss (Section 4.6)
-    criterion = nn.CrossEntropyLoss()
+    # 1. Loss function: Focal Loss or Cross-Entropy with Label Smoothing
+    loss_type = getattr(config, 'loss_type', 'focal')
+    label_smoothing = getattr(config, 'label_smoothing', 0.05)
+    focal_gamma = getattr(config, 'focal_gamma', 1.5)
 
-    # 2. Optimizer: Adam optimizer updating only trainable (quantum + dressed head) parameters
-    trainable_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.Adam(
-        trainable_params,
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay
-    )
+    if loss_type == "focal":
+        criterion = FocalLoss(gamma=focal_gamma, label_smoothing=label_smoothing)
+        print(f"🎯 Objective: Focal Loss (gamma={focal_gamma}, label_smoothing={label_smoothing})")
+    elif loss_type == "label_smoothing":
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+        print(f"🎯 Objective: CrossEntropyLoss (label_smoothing={label_smoothing})")
+    else:
+        criterion = nn.CrossEntropyLoss()
+        print("🎯 Objective: Standard CrossEntropyLoss")
+
+    # 2. Differential Optimizer: Lower LR for backbone fine-tuning, higher LR for quantum head
+    backbone_params = []
+    quantum_head_params = []
+
+    if hasattr(model, 'backbone') and hasattr(model, 'dressed_quantum_net'):
+        for param in model.backbone.parameters():
+            if param.requires_grad:
+                backbone_params.append(param)
+        for param in model.dressed_quantum_net.parameters():
+            if param.requires_grad:
+                quantum_head_params.append(param)
+    else:
+        for param in model.parameters():
+            if param.requires_grad:
+                quantum_head_params.append(param)
+
+    backbone_lr = config.learning_rate * getattr(config, 'backbone_lr_ratio', 0.1)
+    param_groups = []
+    if backbone_params:
+        param_groups.append({
+            'params': backbone_params,
+            'lr': backbone_lr,
+            'weight_decay': config.weight_decay
+        })
+        print(f"🔧 Backbone fine-tuning active ({sum(p.numel() for p in backbone_params):,} params, LR={backbone_lr:.1e})")
+    if quantum_head_params:
+        param_groups.append({
+            'params': quantum_head_params,
+            'lr': config.learning_rate,
+            'weight_decay': config.weight_decay
+        })
+        print(f"⚛️  Dressed Quantum Head active ({sum(p.numel() for p in quantum_head_params):,} params, LR={config.learning_rate:.1e})")
+
+    optimizer = torch.optim.Adam(param_groups)
 
     # 3. Learning rate scheduler: StepLR decreasing LR by gamma every 10 epochs (Section 4.6)
     scheduler = StepLR(
@@ -97,9 +154,6 @@ def train_model(
     best_val_acc = 0.0
     best_metrics = {}
     start_time = time.time()
-
-    print(f"📦 Total trainable parameters: {sum(p.numel() for p in trainable_params):,}")
-    print("=" * 70)
 
     for epoch in range(1, config.epochs + 1):
         model.train()

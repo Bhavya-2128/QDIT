@@ -245,12 +245,14 @@ class FastTorchQuantumCircuit(nn.Module):
 
 class DressedQuantumNet(nn.Module):
     """
-    Dressed Quantum Circuit Module as specified in Section 4.4 of the paper:
-    1. Classical Pre-processing layer: nn.Linear(in_features, n_qubits)
+    Dressed Quantum Circuit Module (Section 4.4 & 4.5 of paper):
+    1. Classical Pre-processing network: Multi-stage non-linear bottleneck with LayerNorm & GELU
+       to prevent catastrophic information collapse when compressing 512/2048 dims -> 4 qubits.
     2. Classical Activation function: torch.tanh
-    3. Constant scaling: np.pi / 2.0
-    4. Variational Quantum Circuit: 4 qubits with trainable weights
-    5. Classical Post-processing layer: nn.Linear(n_qubits, num_classes)
+    3. Scaled quantum angle encoding: angle_scaling * torch.tanh(pre_out)
+    4. Variational Quantum Circuit: 4 qubits with parameterized rotational & entangling layers.
+    5. Classical Post-processing network: Non-linear classifier mapping quantum Pauli-Z expectations
+       to 5 Diabetic Retinopathy stage logits.
     """
 
     def __init__(
@@ -258,7 +260,10 @@ class DressedQuantumNet(nn.Module):
         in_features: int,
         num_classes: int = 5,
         circuit_config: Optional[QuantumCircuitConfig] = None,
-        use_pennylane: bool = False
+        use_pennylane: bool = False,
+        enhanced_projection: bool = True,
+        dropout_rate: float = 0.2,
+        angle_scaling: float = np.pi
     ):
         super().__init__()
         self.circuit_config = circuit_config or QuantumCircuitConfig()
@@ -267,9 +272,25 @@ class DressedQuantumNet(nn.Module):
         self.n_qubits = self.circuit_config.n_qubits
         self.q_depth = self.circuit_config.q_depth
         self.use_pennylane = use_pennylane
+        self.enhanced_projection = enhanced_projection
+        self.dropout_rate = dropout_rate
+        self.angle_scaling = angle_scaling
 
-        # Step 1: Classical Pre-processing layer
-        self.pre_net = nn.Linear(self.in_features, self.n_qubits)
+        # Step 1: Classical Pre-processing network
+        if self.enhanced_projection:
+            mid_dim = 128 if self.in_features >= 512 else 64
+            self.pre_net = nn.Sequential(
+                nn.Linear(self.in_features, mid_dim),
+                nn.LayerNorm(mid_dim),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate),
+                nn.Linear(mid_dim, 32),
+                nn.LayerNorm(32),
+                nn.GELU(),
+                nn.Linear(32, self.n_qubits)
+            )
+        else:
+            self.pre_net = nn.Linear(self.in_features, self.n_qubits)
 
         # Step 4: Quantum Layer
         if self.use_pennylane:
@@ -282,8 +303,17 @@ class DressedQuantumNet(nn.Module):
             # Fast PyTorch batched state-vector quantum layer
             self.quantum_circuit = FastTorchQuantumCircuit(self.circuit_config)
 
-        # Step 5: Classical Post-processing layer
-        self.post_net = nn.Linear(self.n_qubits, self.num_classes)
+        # Step 5: Classical Post-processing network
+        if self.enhanced_projection:
+            self.post_net = nn.Sequential(
+                nn.Linear(self.n_qubits, 64),
+                nn.LayerNorm(64),
+                nn.GELU(),
+                nn.Dropout(self.dropout_rate / 2.0),
+                nn.Linear(64, self.num_classes)
+            )
+        else:
+            self.post_net = nn.Linear(self.n_qubits, self.num_classes)
 
     def forward(self, features: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -295,9 +325,9 @@ class DressedQuantumNet(nn.Module):
               - logits: Output logits of shape (batch_size, num_classes).
               - q_out: Pauli-Z expectation values of shape (batch_size, n_qubits).
         """
-        # Step 1, 2 & 3: Linear -> Tanh -> pi/2 scaling
+        # Step 1, 2 & 3: Linear -> Tanh -> Angle scaling
         pre_out = self.pre_net(features)
-        scaled_inputs = (np.pi / 2.0) * torch.tanh(pre_out)
+        scaled_inputs = self.angle_scaling * torch.tanh(pre_out)
 
         # Step 4: Quantum Circuit processing
         if self.use_pennylane:
@@ -321,7 +351,7 @@ class QuantumTransferLearningDR(nn.Module):
     Diabetic Retinopathy detection (Section 3.5 & 3.6).
 
     Components:
-    - Backbone Network A': Truncated pre-trained CNN (ResNet18-152, Inception-V3) with frozen weights.
+    - Backbone Network A': Pretrained CNN (ResNet18-152, Inception-V3) with fine-tuning or layer freezing.
     - Dressed Quantum Circuit B: Trainable quantum neural classifier.
     """
 
@@ -338,7 +368,8 @@ class QuantumTransferLearningDR(nn.Module):
         self.backbone, self.feature_dim = self._build_backbone(
             self.config.backbone,
             self.config.pretrained,
-            self.config.freeze_backbone
+            self.config.freeze_backbone,
+            getattr(self.config, 'unfreeze_last_n_layers', 1)
         )
 
         # 2. Instantiate Dressed Quantum Classifier Head B
@@ -346,16 +377,20 @@ class QuantumTransferLearningDR(nn.Module):
             in_features=self.feature_dim,
             num_classes=self.config.num_classes,
             circuit_config=self.config.quantum_circuit,
-            use_pennylane=self.use_pennylane
+            use_pennylane=self.use_pennylane,
+            enhanced_projection=getattr(self.config, 'enhanced_projection', True),
+            dropout_rate=getattr(self.config, 'dropout_rate', 0.2),
+            angle_scaling=getattr(self.config, 'angle_scaling', np.pi)
         )
 
     def _build_backbone(
         self,
         backbone_type: BackboneType,
         pretrained: bool,
-        freeze: bool
+        freeze: bool,
+        unfreeze_last_n_layers: int = 1
     ) -> Tuple[nn.Module, int]:
-        """Loads torchvision CNN backbone, truncates final FC layer, and freezes parameters."""
+        """Loads torchvision CNN backbone, truncates final FC layer, and manages layer freezing."""
         weights = "DEFAULT" if pretrained else None
 
         if backbone_type == BackboneType.RESNET18:
@@ -391,17 +426,29 @@ class QuantumTransferLearningDR(nn.Module):
         else:
             raise ValueError(f"Unsupported backbone: {backbone_type}")
 
-        # Freeze classical backbone parameters
-        if freeze:
+        # Layer freezing logic:
+        if freeze and unfreeze_last_n_layers == 0:
+            # 100% frozen backbone
             for param in model.parameters():
                 param.requires_grad = False
+        elif freeze and unfreeze_last_n_layers > 0:
+            # Freeze early edge-detector layers, unfreeze top residual block (layer4) for DR lesion adaptation
+            for name, param in model.named_parameters():
+                if "layer4" in name or "Mixed_7" in name:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+        else:
+            # Full fine-tuning enabled
+            for param in model.parameters():
+                param.requires_grad = True
 
         return model, feature_dim
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         End-to-end forward pass:
-        Image -> Frozen Backbone A' -> Feature Vector -> Dressed Quantum Circuit B -> Logits
+        Image -> Backbone A' -> Feature Vector -> Dressed Quantum Circuit B -> Logits
         """
         # Feature extraction through Classical Network A'
         features = self.backbone(x)

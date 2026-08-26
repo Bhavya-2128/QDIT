@@ -102,8 +102,8 @@ class TestQuantumModels(unittest.TestCase):
         loss = logits.sum()
         loss.backward()
         self.assertIsNotNone(dummy_features.grad)
-        self.assertIsNotNone(dressed_net.pre_net.weight.grad)
-        self.assertIsNotNone(dressed_net.post_net.weight.grad)
+        self.assertTrue(any(p.grad is not None for p in dressed_net.pre_net.parameters()))
+        self.assertTrue(any(p.grad is not None for p in dressed_net.post_net.parameters()))
 
     def test_pennylane_dressed_net_forward_and_backward(self):
         batch_size = 2
@@ -128,13 +128,31 @@ class TestQuantumModels(unittest.TestCase):
         self.assertIsNotNone(dressed_net.q_weights.grad)
 
     def test_hybrid_cq_model_backbone_freezing(self):
-        model = QuantumTransferLearningDR(
-            config=ModelConfig(backbone=BackboneType.RESNET18, pretrained=False)
+        # 1. Test 100% frozen backbone
+        frozen_model = QuantumTransferLearningDR(
+            config=ModelConfig(
+                backbone=BackboneType.RESNET18,
+                pretrained=False,
+                freeze_backbone=True,
+                unfreeze_last_n_layers=0
+            )
         )
-
-        # Check classical backbone weights are frozen
-        for param in model.backbone.parameters():
+        for param in frozen_model.backbone.parameters():
             self.assertFalse(param.requires_grad)
+
+        # 2. Test selective layer4 fine-tuning
+        model = QuantumTransferLearningDR(
+            config=ModelConfig(
+                backbone=BackboneType.RESNET18,
+                pretrained=False,
+                freeze_backbone=True,
+                unfreeze_last_n_layers=1
+            )
+        )
+        layer4_trainable = any(p.requires_grad for name, p in model.backbone.named_parameters() if "layer4" in name)
+        early_conv_frozen = all(not p.requires_grad for name, p in model.backbone.named_parameters() if name.startswith("conv1") or name.startswith("layer1"))
+        self.assertTrue(layer4_trainable)
+        self.assertTrue(early_conv_frozen)
 
         # Check dressed quantum net weights are trainable
         trainable_params = [p for p in model.parameters() if p.requires_grad]

@@ -51,22 +51,29 @@ class QuantumCircuitConfig:
 class ModelConfig:
     backbone: BackboneType = BackboneType.RESNET18
     pretrained: bool = True
-    freeze_backbone: bool = True
+    freeze_backbone: bool = False             # Set False or unfreeze top layer for higher DR lesion sensitivity
+    unfreeze_last_n_layers: int = 1           # Unfreeze top residual layer (layer4) for DR feature specialization
+    enhanced_projection: bool = True          # Multi-stage non-linear projection to preserve feature hierarchy
     num_classes: int = 5
     quantum_circuit: QuantumCircuitConfig = field(default_factory=QuantumCircuitConfig)
     dropout_rate: float = 0.2
+    angle_scaling: float = 3.141592653589793  # pi scaling for full Bloch sphere rotational expressibility
 
 
 @dataclass
 class TrainingConfig:
-    batch_size: int = 16
+    batch_size: int = 32                      # 32 batch size for faster throughput on T4/P100
     epochs: int = 30
     learning_rate: float = 1e-3
+    backbone_lr_ratio: float = 0.1            # Differential learning rate: 1e-4 for CNN backbone, 1e-3 for Quantum
     lr_decay_step: int = 10
     lr_decay_gamma: float = 0.5
     weight_decay: float = 1e-4
+    loss_type: str = "focal"                  # "focal", "label_smoothing", or "cross_entropy"
+    focal_gamma: float = 1.5                  # Focal loss gamma to address borderline DR stage confusion
+    label_smoothing: float = 0.05             # Label smoothing factor
     seed: int = 42
-    device: str = "cuda"  # "cuda" or "cpu"
+    device: str = "cuda"                      # "cuda" or "cpu"
     image_size: Tuple[int, int] = (224, 224)
     apply_graham_filter: bool = True
     num_workers: int = 2
