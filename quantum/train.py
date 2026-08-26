@@ -72,11 +72,34 @@ def train_model(
     device = torch.device("cuda" if use_cuda else "cpu")
 
     if use_cuda:
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-        cuda_version = torch.version.cuda
-        print(f"🚀 [FULL GPU MODE] Active Device: {gpu_name} ({gpu_vram:.1f} GB VRAM) | CUDA: {cuda_version}")
-        torch.backends.cudnn.benchmark = True
+        try:
+            # Pre-flight CUDA sanity check to verify device compute capability (e.g. catches P100 sm_60 incompatibility)
+            test_tensor = torch.zeros((1, 1, 3, 3), device=device)
+            test_conv = nn.Conv2d(1, 1, 1).to(device)
+            _ = test_conv(test_tensor)
+            del test_tensor, test_conv
+            torch.cuda.empty_cache()
+
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            cuda_version = torch.version.cuda
+            print(f"🚀 [FULL GPU MODE] Active Device: {gpu_name} ({gpu_vram:.1f} GB VRAM) | CUDA: {cuda_version}")
+            torch.backends.cudnn.benchmark = True
+        except Exception as e:
+            err_msg = str(e)
+            print("\n" + "!" * 80)
+            print("⚠️  CUDA INCOMPATIBILITY DETECTED (cudaErrorNoKernelImageForDevice):")
+            print(f"   {err_msg}")
+            print("\n📋 HOW TO FIX ON KAGGLE:")
+            print("   1. Switch Accelerator: In Kaggle's right sidebar under 'Notebook options',")
+            print("      set Accelerator to 'GPU T4 x2' (Tesla T4) instead of 'GPU P100'.")
+            print("   2. Avoid overwriting PyTorch: Do NOT run `pip install torchvision` or `pip install torch`.")
+            print("      Only run: `!pip install -q pennylane kagglehub`")
+            print("   3. Restart Session: Click 'Session' -> 'Restart Session' in Kaggle's top menu.")
+            print("!" * 80 + "\n")
+            print("🔄 Falling back to CPU device to prevent crashes...")
+            device = torch.device("cpu")
+            use_cuda = False
     else:
         print("💻 Running on CPU device.")
 

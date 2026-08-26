@@ -24,7 +24,7 @@ This comprehensive guide walks you through setting up, training, and running inf
 ### Step 1.2: Enable GPU and Internet Access (Critical ⚠️)
 On the right-hand panel of your Kaggle notebook under **Notebook options / Settings**:
 
-1. **Accelerator**: Click the dropdown and select **GPU T4 x2** (or **GPU P100**).
+1. **Accelerator**: Click the dropdown and select **GPU T4 x2** (Tesla T4). *(Note: Avoid GPU P100 as newer PyTorch versions do not support sm_60 architecture).*
 2. **Internet**: Toggle the switch to **Internet On** (required to clone GitHub repo and download pre-trained weights).
 
 ---
@@ -41,9 +41,9 @@ In a new code cell in your Kaggle notebook, paste and run the following code:
 %cd QDIT
 
 # -------------------------------------------------------------
-# 2. Install PennyLane & Kagglehub dependencies
+# 2. Install PennyLane & Kagglehub (do NOT reinstall torch/torchvision)
 # -------------------------------------------------------------
-!pip install -q pennylane kagglehub torchvision scikit-learn pandas matplotlib pillow
+!pip install -q pennylane kagglehub
 
 # -------------------------------------------------------------
 # 3. Option A: Train Single Selected Configuration
@@ -88,7 +88,7 @@ If you prefer an interactive notebook with visual loss curves, confusion matrice
 ```python
 !git clone https://github.com/Bhavya-2128/QDIT.git
 %cd QDIT
-!pip install -q pennylane kagglehub torchvision scikit-learn pandas matplotlib pillow
+!pip install -q pennylane kagglehub
 ```
 
 ### Cell 2: Verify GPU & Download Dataset
@@ -250,7 +250,8 @@ print("📋 Clinical Guidance:", result["clinical_diagnosis"])
 
 | Issue | Solution |
 |---|---|
-| **`CUDA out of memory`** | Reduce batch size to `8` or `16` using `--batch-size 8`. |
+| **`CUDA error: no kernel image is available for execution on the device`** | 1. In Kaggle's right sidebar under **Notebook options**, change **Accelerator** to **GPU T4 x2** (Tesla T4) instead of **GPU P100**.<br>2. Do **not** run `pip install torchvision` (Kaggle already has optimized PyTorch/torchvision pre-installed). Only run `!pip install -q pennylane kagglehub`.<br>3. Restart the session via **Session** -> **Restart Session** and run the cells. |
+| **`CUDA out of memory`** | Reduce batch size to `8` or `16` using `--batch-size 8` or `batch_size=16`. |
 | **`Permission denied / Connection error downloading weights`** | Ensure the **Internet** switch is toggled to **ON** in the right-side notebook settings. |
 | **`ModuleNotFoundError: No module named 'pennylane'`** | Run `!pip install -q pennylane kagglehub` at the beginning of the notebook. |
 | **`FileNotFoundError: No images found`** | Ensure `bhavyasanghavi2348/data-qdit` is specified properly, or attach the dataset directly via **+ Add Input** in the top right corner. |

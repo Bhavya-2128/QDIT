@@ -51,11 +51,27 @@ def run_kaggle_experiment(
     print("=" * 80)
 
     if torch.cuda.is_available():
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-        print(f"🚀 [KAGGLE GPU ACCELERATION ENABLED] Using {gpu_name} ({gpu_vram:.1f} GB VRAM)")
+        try:
+            test_t = torch.zeros((1, 1, 3, 3), device="cuda")
+            test_c = torch.nn.Conv2d(1, 1, 1).to("cuda")
+            _ = test_c(test_t)
+            del test_t, test_c
+            torch.cuda.empty_cache()
+
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_vram = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            print(f"🚀 [KAGGLE GPU ACCELERATION ENABLED] Using {gpu_name} ({gpu_vram:.1f} GB VRAM)")
+        except Exception as e:
+            print("\n" + "!" * 80)
+            print("⚠️  CUDA INCOMPATIBILITY DETECTED ON KAGGLE:")
+            print(f"   {e}")
+            print("\n📋 QUICK FIX:")
+            print("   1. Switch Accelerator to 'GPU T4 x2' in Kaggle Notebook Options (P100 sm_60 is not supported by newer PyTorch).")
+            print("   2. Avoid `pip install torchvision` which breaks Kaggle's pre-installed CUDA PyTorch.")
+            print("   3. Restart Session via Session -> Restart Session.")
+            print("!" * 80 + "\n")
     else:
-        print("⚠️  [NOTICE] Running on CPU. For faster training, enable 'GPU T4 x2' or 'GPU P100' in Kaggle Notebook Settings.")
+        print("⚠️  [NOTICE] Running on CPU. For faster training, enable 'GPU T4 x2' in Kaggle Notebook Settings.")
 
     # 1. Resolve Dataset
     print(f"\n📂 Resolving Kaggle dataset: {dataset_slug}")
