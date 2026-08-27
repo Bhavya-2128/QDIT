@@ -135,64 +135,51 @@ def get_fundus_transforms(
 def resolve_dataset_path(dataset_source: Optional[str] = None) -> str:
     """
     Resolves the dataset directory path whether running on Kaggle (/kaggle/input/...),
-    via kagglehub slug (e.g., 'bhavyasanghavi2348/data-qdit'), or from a local folder.
+    via kagglehub slug (e.g., 'aptos2019-blindness-detection'), or from a local folder.
     """
     # 1. Direct check if path exists locally
     if dataset_source and os.path.exists(dataset_source):
         return dataset_source
 
-    # 2. Check standard Kaggle attached dataset paths
-    kaggle_paths = [
-        "/kaggle/input/data-qdit",
-        "/kaggle/input/aptos2019-blindness-detection",
-        "/kaggle/input/diabetic-retinopathy-detection"
-    ]
-    for kp in kaggle_paths:
-        if os.path.exists(kp):
-            print(f"📦 Detected Kaggle attached dataset at: {kp}")
-            return kp
-
-    # 3. Check if dataset_source is a competition or dataset slug via kagglehub
-    if dataset_source and not os.path.exists(dataset_source):
-        try:
-            import kagglehub
-            clean_slug = dataset_source.strip()
-            # If it is a competition name (like 'aptos2019-blindness-detection')
-            if "/" not in clean_slug or "aptos2019" in clean_slug:
-                try:
-                    print(f"📥 Accessing Kaggle competition '{clean_slug}' via kagglehub...")
-                    comp_path = kagglehub.competition_download(clean_slug)
-                    print(f"✅ Kagglehub competition available at: {comp_path}")
-                    return comp_path
-                except Exception as comp_err:
-                    print(f"⚠️  Competition access requires accepting rules: {comp_err}")
-                    print("🔄 Falling back to public open mirror dataset on Kaggle...")
-                    try:
-                        mirror_path = kagglehub.dataset_download("bhavyasanghavi2348/data-qdit")
-                        print(f"✅ Public open mirror available at: {mirror_path}")
-                        return mirror_path
-                    except Exception as m_err:
-                        print(f"ℹ️  Mirror 1 failed: {m_err}. Trying secondary mirror...")
-                        try:
-                            mirror_path2 = kagglehub.dataset_download("sovitrath/diabetic-retinopathy-224x224-gaussian-filtered")
-                            print(f"✅ Secondary mirror available at: {mirror_path2}")
-                            return mirror_path2
-                        except Exception:
-                            pass
-            
-            print(f"📥 Accessing Kaggle dataset '{clean_slug}' via kagglehub...")
-            downloaded_path = kagglehub.dataset_download(clean_slug)
-            print(f"✅ Kagglehub dataset available at: {downloaded_path}")
-            return downloaded_path
-        except Exception as e:
-            print(f"⚠️  Could not access via kagglehub ({e}).")
-
-    # 4. Fallback: Check if any dataset exists inside /kaggle/input
+    # 2. Check /kaggle/input recursively for dataset containing train.csv or images
     if os.path.exists("/kaggle/input"):
-        subdirs = [os.path.join("/kaggle/input", d) for d in os.listdir("/kaggle/input") if os.path.isdir(os.path.join("/kaggle/input", d))]
-        if subdirs:
-            print(f"📦 Auto-selected Kaggle input directory: {subdirs[0]}")
-            return subdirs[0]
+        # Search all subdirectories in /kaggle/input for train.csv
+        for root, dirs, files in os.walk("/kaggle/input"):
+            if "train.csv" in files or "train_images" in dirs:
+                print(f"📦 Auto-discovered attached Kaggle dataset at: {root}")
+                return root
+
+    # 3. Extract clean competition or dataset slug if a full path was passed
+    clean_slug = dataset_source.strip() if dataset_source else "aptos2019-blindness-detection"
+    clean_slug = clean_slug.replace("/kaggle/input/competitions/", "").replace("/kaggle/input/", "")
+
+    try:
+        import kagglehub
+        if "/" not in clean_slug or "aptos2019" in clean_slug:
+            try:
+                print(f"📥 Accessing Kaggle competition '{clean_slug}' via kagglehub...")
+                comp_path = kagglehub.competition_download(clean_slug)
+                print(f"✅ Kagglehub competition available at: {comp_path}")
+                return comp_path
+            except Exception as comp_err:
+                print(f"⚠️  Competition download failed: {comp_err}")
+                print("🔄 Trying dataset_download fallback...")
+
+        print(f"📥 Accessing Kaggle dataset '{clean_slug}' via kagglehub...")
+        downloaded_path = kagglehub.dataset_download(clean_slug)
+        print(f"✅ Kagglehub dataset available at: {downloaded_path}")
+        return downloaded_path
+    except Exception as e:
+        print(f"⚠️  kagglehub resolution failed: {e}")
+
+    # Fallback to standard Kaggle paths
+    for fallback_path in [
+        "/kaggle/input/aptos2019-blindness-detection",
+        "/kaggle/input/competitions/aptos2019-blindness-detection",
+        "/kaggle/input/data-qdit"
+    ]:
+        if os.path.exists(fallback_path):
+            return fallback_path
 
     return dataset_source or "./data/synthetic_fundus"
 
