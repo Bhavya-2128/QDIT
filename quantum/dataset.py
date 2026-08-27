@@ -153,17 +153,30 @@ def resolve_dataset_path(dataset_source: Optional[str] = None) -> str:
         try:
             import kagglehub
             clean_slug = dataset_source.strip()
-            # If it is a competition name (like 'aptos2019-blindness-detection') or doesn't have a user prefix '/'
+            # If it is a competition name (like 'aptos2019-blindness-detection')
             if "/" not in clean_slug or "aptos2019" in clean_slug:
                 try:
-                    print(f"📥 Accessing/Downloading Kaggle competition '{clean_slug}' via kagglehub...")
+                    print(f"📥 Accessing Kaggle competition '{clean_slug}' via kagglehub...")
                     comp_path = kagglehub.competition_download(clean_slug)
                     print(f"✅ Kagglehub competition available at: {comp_path}")
                     return comp_path
                 except Exception as comp_err:
-                    print(f"ℹ️  competition_download attempt: {comp_err}. Trying dataset_download...")
+                    print(f"⚠️  Competition access requires accepting rules: {comp_err}")
+                    print("🔄 Falling back to public open mirror dataset on Kaggle...")
+                    try:
+                        mirror_path = kagglehub.dataset_download("bhavyasanghavi2348/data-qdit")
+                        print(f"✅ Public open mirror available at: {mirror_path}")
+                        return mirror_path
+                    except Exception as m_err:
+                        print(f"ℹ️  Mirror 1 failed: {m_err}. Trying secondary mirror...")
+                        try:
+                            mirror_path2 = kagglehub.dataset_download("sovitrath/diabetic-retinopathy-224x224-gaussian-filtered")
+                            print(f"✅ Secondary mirror available at: {mirror_path2}")
+                            return mirror_path2
+                        except Exception:
+                            pass
             
-            print(f"📥 Accessing/Downloading Kaggle dataset '{clean_slug}' via kagglehub...")
+            print(f"📥 Accessing Kaggle dataset '{clean_slug}' via kagglehub...")
             downloaded_path = kagglehub.dataset_download(clean_slug)
             print(f"✅ Kagglehub dataset available at: {downloaded_path}")
             return downloaded_path

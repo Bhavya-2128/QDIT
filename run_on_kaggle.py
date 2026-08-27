@@ -34,7 +34,7 @@ from quantum.train import train_model
 
 
 def run_kaggle_experiment(
-    dataset_slug: str = "bhavyasanghavi2348/data-qdit",
+    dataset_slug: str = "aptos2019-blindness-detection",
     backbone: str = "resnet18",
     embedding_gate: str = "hadamard",
     entangling_gate: str = "cnot",
@@ -309,7 +309,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="QDIT Kaggle Benchmark Runner")
     parser.add_argument("--mode", type=str, default="single", choices=["single", "table4", "table5", "all"])
-    parser.add_argument("--dataset", type=str, default="bhavyasanghavi2348/data-qdit")
+    parser.add_argument("--dataset", type=str, default="aptos2019-blindness-detection")
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
