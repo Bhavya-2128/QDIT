@@ -136,6 +136,91 @@ def run_kaggle_experiment(
     print(format_metrics_table(best_metrics))
     print("=" * 80)
 
+    # 7. Plot and Save Curves
+    try:
+        import matplotlib.pyplot as plt
+        epochs_range = range(1, len(history["train_loss"]) + 1)
+        plt.figure(figsize=(14, 5))
+
+        plt.subplot(1, 2, 1)
+        plt.plot(epochs_range, history["train_loss"], 'b-o', label='Train Loss')
+        plt.plot(epochs_range, history["val_loss"], 'r-s', label='Val Loss')
+        plt.title('Training & Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Focal Loss')
+        plt.grid(True)
+        plt.legend()
+
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs_range, [a * 100 for a in history["train_acc"]], 'b-o', label='Train Acc')
+        plt.plot(epochs_range, [a * 100 for a in history["val_acc"]], 'g-s', label='Val Acc')
+        plt.plot(epochs_range, [f * 100 for f in history["val_f1"]], 'm--', label='Val Macro F1')
+        plt.title('Validation Accuracy & Macro F1 (%)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Score (%)')
+        plt.grid(True)
+        plt.legend()
+
+        plt.tight_layout()
+        plot_path = "/kaggle/working/training_curves.png" if os.path.exists("/kaggle/working") else "training_curves.png"
+        plt.savefig(plot_path, dpi=300)
+        print(f"📊 Training curves saved to: {plot_path}")
+    except Exception as e:
+        print(f"⚠️ Could not save plot: {e}")
+
+    # 8. Automated Test Inference on test_images/
+    test_csv_path = os.path.join(dataset_dir, "test.csv")
+    test_img_dir = os.path.join(dataset_dir, "test_images")
+
+    if os.path.exists(test_csv_path) and os.path.exists(test_img_dir):
+        from PIL import Image
+        from quantum.dataset import get_fundus_transforms
+        import pandas as pd
+
+        print("\n" + "=" * 80)
+        print("🔍 RUNNING INFERENCE ON test_images/ (generating submission.csv)")
+        print("=" * 80)
+
+        test_df = pd.read_csv(test_csv_path)
+        test_transform = get_fundus_transforms(image_size=(224, 224), is_training=False, apply_graham=True)
+
+        if save_path and os.path.exists(save_path):
+            ckpt = torch.load(save_path, map_location=train_cfg.device)
+            if "model_state_dict" in ckpt:
+                model.load_state_dict(ckpt["model_state_dict"])
+            else:
+                model.load_state_dict(ckpt)
+
+        model.eval()
+        device_torch = torch.device(train_cfg.device)
+        predictions = []
+
+        with torch.no_grad():
+            for i, row in test_df.iterrows():
+                img_name = str(row['id_code'])
+                if not img_name.endswith('.png'):
+                    img_name += '.png'
+                img_path = os.path.join(test_img_dir, img_name)
+
+                if os.path.exists(img_path):
+                    img = Image.open(img_path).convert("RGB")
+                    tensor = test_transform(img).unsqueeze(0).to(device_torch)
+                    logits, _, _ = model(tensor)
+                    pred = torch.argmax(logits, dim=-1).item()
+                    predictions.append(pred)
+                else:
+                    predictions.append(0)
+
+                if (i + 1) % 500 == 0 or (i + 1) == len(test_df):
+                    print(f"   Processed [{i+1}/{len(test_df)}] test scans...")
+
+        test_df['diagnosis'] = predictions
+        sub_dir = "/kaggle/working" if os.path.exists("/kaggle/working") else "."
+        submission_path = os.path.join(sub_dir, "submission.csv")
+        test_df[['id_code', 'diagnosis']].to_csv(submission_path, index=False)
+        print(f"\n✅ Generated submission file: {submission_path}")
+        print(test_df[['id_code', 'diagnosis']].head(10))
+
     return trained_model, history, best_metrics
 
 

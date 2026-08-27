@@ -47,20 +47,24 @@ def apply_graham_gaussian_filter(
 
     # 2. Auto-crop black FOV border margin
     if auto_crop and img_np.ndim == 3:
-        gray = np.mean(img_np, axis=-1)
-        mask = gray > 10  # Detect non-background pixels
-        if np.any(mask):
-            rows = np.any(mask, axis=1)
-            cols = np.any(mask, axis=0)
-            rmin, rmax = np.where(rows)[0][[0, -1]]
-            cmin, cmax = np.where(cols)[0][[0, -1]]
-            h, w = gray.shape
-            rmin = max(0, rmin - 2)
-            rmax = min(h, rmax + 3)
-            cmin = max(0, cmin - 2)
-            cmax = min(w, cmax + 3)
-            if (rmax - rmin > 30) and (cmax - cmin > 30):
-                img_np = img_np[rmin:rmax, cmin:cmax]
+        try:
+            gray = np.mean(img_np, axis=-1)
+            mask = gray > 10  # Detect non-background pixels
+            if np.any(mask):
+                row_indices = np.where(np.any(mask, axis=1))[0]
+                col_indices = np.where(np.any(mask, axis=0))[0]
+                if len(row_indices) > 1 and len(col_indices) > 1:
+                    rmin, rmax = int(row_indices[0]), int(row_indices[-1])
+                    cmin, cmax = int(col_indices[0]), int(col_indices[-1])
+                    h, w = gray.shape
+                    rmin = max(0, rmin - 2)
+                    rmax = min(h, rmax + 3)
+                    cmin = max(0, cmin - 2)
+                    cmax = min(w, cmax + 3)
+                    if (rmax - rmin > 30) and (cmax - cmin > 30):
+                        img_np = img_np[rmin:rmax, cmin:cmax]
+        except Exception:
+            pass
 
     img_pil = Image.fromarray(img_np)
 
