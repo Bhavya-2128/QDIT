@@ -224,48 +224,64 @@ class DiabeticRetinopathyDataset(Dataset):
 
         # Check for CSV files inside root_dir if not explicitly passed
         if not csv_file:
-            for potential_csv in self.root_dir.glob("*.csv"):
-                csv_file = str(potential_csv)
-                break
+            for candidate_csv_name in ["train.csv", "train_labels.csv", "labels.csv", "train_dr.csv"]:
+                p = self.root_dir / candidate_csv_name
+                if p.exists():
+                    csv_file = str(p)
+                    break
+            if not csv_file:
+                for potential_csv in self.root_dir.glob("*.csv"):
+                    if "sample" not in potential_csv.name.lower() and "test" not in potential_csv.name.lower():
+                        csv_file = str(potential_csv)
+                        break
 
         if csv_file and os.path.exists(csv_file):
             import pandas as pd
             df = pd.read_csv(csv_file)
 
             # Determine image column and target column
-            img_col = next((c for c in ['id_code', 'image', 'image_id', 'filename'] if c in df.columns), df.columns[0])
-            label_col = next((c for c in ['diagnosis', 'level', 'stage', 'label'] if c in df.columns), df.columns[-1])
+            img_col = next((c for c in ['id_code', 'image', 'image_id', 'filename', 'Image_name'] if c in df.columns), df.columns[0])
+            label_col = next((c for c in ['diagnosis', 'level', 'stage', 'label', 'Retinopathy grade'] if c in df.columns), df.columns[-1])
 
             # Determine image directory
             candidate_dirs = [
                 self.root_dir / "train_images",
                 self.root_dir / "train",
                 self.root_dir / "images",
+                self.root_dir / "gaussian_filtered_images" / "gaussian_filtered_images",
+                self.root_dir / "gaussian_filtered_images",
                 self.root_dir,
             ]
             actual_img_dir = Path(image_dir) if image_dir else None
             if not actual_img_dir:
                 for cd in candidate_dirs:
-                    if cd.exists() and any(cd.glob("*.*")):
-                        actual_img_dir = cd
-                        break
+                    if cd.exists() and cd.is_dir():
+                        if len(df) > 0:
+                            first_name = str(df.iloc[0][img_col])
+                            if (cd / first_name).exists() or (cd / f"{first_name}.png").exists() or (cd / f"{first_name}.jpg").exists():
+                                actual_img_dir = cd
+                                break
+                        if any(cd.glob("*.png")) or any(cd.glob("*.jpg")):
+                            actual_img_dir = cd
+                            break
                 if not actual_img_dir:
                     actual_img_dir = self.root_dir
 
             for _, row in df.iterrows():
-                img_name = str(row[img_col])
-                if not any(img_name.lower().endswith(ext) for ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']):
-                    img_name += '.png'
-                img_path = actual_img_dir / img_name
+                base_name = str(row[img_col])
+                img_path = actual_img_dir / base_name
                 if not img_path.exists():
-                    # Check with .jpg fallback
-                    alt_path = actual_img_dir / (str(row[img_col]) + '.jpg')
-                    if alt_path.exists():
-                        img_path = alt_path
-
+                    for ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
+                        test_p = actual_img_dir / f"{base_name}{ext}"
+                        if test_p.exists():
+                            img_path = test_p
+                            break
                 if img_path.exists():
-                    label = int(row[label_col])
-                    self.samples.append((img_path, label))
+                    try:
+                        label = int(row[label_col])
+                        self.samples.append((img_path, label))
+                    except Exception:
+                        pass
 
         # If no samples from CSV, search stage subfolders (0, 1, 2, 3, 4)
         if len(self.samples) == 0:
