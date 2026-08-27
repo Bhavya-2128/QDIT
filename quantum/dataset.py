@@ -148,12 +148,23 @@ def resolve_dataset_path(dataset_source: Optional[str] = None) -> str:
             print(f"📦 Detected Kaggle attached dataset at: {kp}")
             return kp
 
-    # 3. Check if dataset_source is a Kaggle slug (e.g. 'bhavyasanghavi2348/data-qdit')
-    if dataset_source and "/" in dataset_source and not os.path.exists(dataset_source):
+    # 3. Check if dataset_source is a competition or dataset slug via kagglehub
+    if dataset_source and not os.path.exists(dataset_source):
         try:
             import kagglehub
-            print(f"📥 Downloading/Accessing Kaggle dataset '{dataset_source}' via kagglehub...")
-            downloaded_path = kagglehub.dataset_download(dataset_source)
+            clean_slug = dataset_source.strip()
+            # If it is a competition name (like 'aptos2019-blindness-detection') or doesn't have a user prefix '/'
+            if "/" not in clean_slug or "aptos2019" in clean_slug:
+                try:
+                    print(f"📥 Accessing/Downloading Kaggle competition '{clean_slug}' via kagglehub...")
+                    comp_path = kagglehub.competition_download(clean_slug)
+                    print(f"✅ Kagglehub competition available at: {comp_path}")
+                    return comp_path
+                except Exception as comp_err:
+                    print(f"ℹ️  competition_download attempt: {comp_err}. Trying dataset_download...")
+            
+            print(f"📥 Accessing/Downloading Kaggle dataset '{clean_slug}' via kagglehub...")
+            downloaded_path = kagglehub.dataset_download(clean_slug)
             print(f"✅ Kagglehub dataset available at: {downloaded_path}")
             return downloaded_path
         except Exception as e:
@@ -414,13 +425,24 @@ def get_dataloaders(
         raise ValueError(f"No fundus images found in directory: {dataset_dir}")
 
     total_len = len(full_dataset)
-    train_len = int(total_len * train_split)
-    val_len = total_len - train_len
+    labels = [s[1] for s in full_dataset.samples]
 
-    generator = torch.Generator().manual_seed(seed)
-    train_indices, val_indices = torch.utils.data.random_split(
-        range(total_len), [train_len, val_len], generator=generator
-    )
+    # Use Stratified Split so all 5 classes are represented proportionally in validation
+    try:
+        from sklearn.model_selection import train_test_split
+        train_indices, val_indices = train_test_split(
+            list(range(total_len)),
+            train_size=train_split,
+            stratify=labels,
+            random_state=seed
+        )
+    except Exception:
+        train_len = int(total_len * train_split)
+        val_len = total_len - train_len
+        generator = torch.Generator().manual_seed(seed)
+        train_indices, val_indices = torch.utils.data.random_split(
+            range(total_len), [train_len, val_len], generator=generator
+        )
 
     train_transform = get_fundus_transforms(image_size=image_size, is_training=True, apply_graham=apply_graham)
     val_transform = get_fundus_transforms(image_size=image_size, is_training=False, apply_graham=apply_graham)
