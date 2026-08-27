@@ -253,46 +253,146 @@ def train_model(
 
     total_training_time = time.time() - start_time
     print("=" * 70)
-    print(f"✅ Training completed in {total_training_time:.2f}s. Best Val Accuracy: {best_val_acc*100:.2f}%")
+    print(f"✅ Training completed in {total_training_time:.2f}s ({total_training_time/60:.2f} min). Best Val Accuracy: {best_val_acc*100:.2f}%")
     if save_path:
         print(f"💾 Best model weights saved to: {save_path}")
 
     return model, history, best_metrics
 
 
+def plot_learning_curves(history: Dict[str, List[float]], output_path: str = "training_curves.png") -> None:
+    """Plots and saves loss, accuracy, and Macro F1 curves across epochs."""
+    try:
+        import matplotlib.pyplot as plt
+        epochs_range = range(1, len(history["train_loss"]) + 1)
+        plt.figure(figsize=(14, 5))
+
+        # Loss Plot
+        plt.subplot(1, 2, 1)
+        plt.plot(epochs_range, history["train_loss"], 'b-o', label='Train Loss')
+        plt.plot(epochs_range, history["val_loss"], 'r-s', label='Val Loss')
+        plt.title('Training & Validation Loss (Focal Loss)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.grid(True)
+        plt.legend()
+
+        # Accuracy & Macro F1 Plot
+        plt.subplot(1, 2, 2)
+        plt.plot(epochs_range, [a * 100 for a in history["train_acc"]], 'b-o', label='Train Acc (%)')
+        plt.plot(epochs_range, [a * 100 for a in history["val_acc"]], 'g-s', label='Val Acc (%)')
+        if "val_f1" in history:
+            plt.plot(epochs_range, [f * 100 for f in history["val_f1"]], 'm--', label='Val Macro F1 (%)')
+        plt.title('Validation Accuracy & Macro F1 (%)')
+        plt.xlabel('Epoch')
+        plt.ylabel('Score (%)')
+        plt.grid(True)
+        plt.legend()
+
+        plt.tight_layout()
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        plt.savefig(output_path, dpi=300)
+        print(f"📊 Training curves saved to: {output_path}")
+    except Exception as e:
+        print(f"⚠️ Could not save plot curves: {e}")
+
+
+def run_inference_on_test_images(
+    model: nn.Module,
+    dataset_dir: str,
+    device: torch.device,
+    output_csv: str = "submission.csv"
+) -> Optional[pd.DataFrame]:
+    """Runs model inference on test_images/ and outputs submission.csv."""
+    import pandas as pd
+    from PIL import Image
+    from quantum.dataset import get_fundus_transforms, resolve_dataset_path
+
+    resolved = resolve_dataset_path(dataset_dir)
+    test_csv_path = os.path.join(resolved, "test.csv")
+    test_img_dir = os.path.join(resolved, "test_images")
+
+    if not os.path.exists(test_img_dir):
+        print(f"ℹ️  No test_images directory found at {test_img_dir}. Skipping test inference.")
+        return None
+
+    print("\n" + "=" * 80)
+    print("🔍 EVALUATING & RUNNING INFERENCE ON test_images/...")
+    print("=" * 80)
+
+    test_transform = get_fundus_transforms(image_size=(224, 224), is_training=False, apply_graham=True)
+    model.eval()
+
+    if os.path.exists(test_csv_path):
+        test_df = pd.read_csv(test_csv_path)
+    else:
+        # Construct dataframe from image files
+        img_files = [f for f in os.listdir(test_img_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        test_df = pd.DataFrame({'id_code': [Path(f).stem for f in img_files]})
+
+    predictions = []
+    use_amp = (device.type == "cuda")
+
+    with torch.no_grad():
+        for i, row in test_df.iterrows():
+            img_id = str(row['id_code'])
+            name = img_id if img_id.endswith(('.png', '.jpg', '.jpeg')) else f"{img_id}.png"
+            p = os.path.join(test_img_dir, name)
+
+            if not os.path.exists(p):
+                for ext in ['.jpg', '.jpeg', '.tiff']:
+                    p_alt = os.path.join(test_img_dir, f"{img_id}{ext}")
+                    if os.path.exists(p_alt):
+                        p = p_alt
+                        break
+
+            if os.path.exists(p):
+                img = Image.open(p).convert("RGB")
+                tensor = test_transform(img).unsqueeze(0).to(device)
+                with torch.amp.autocast('cuda', enabled=use_amp):
+                    logits, _, _ = model(tensor)
+                pred = torch.argmax(logits, dim=-1).item()
+                predictions.append(pred)
+            else:
+                predictions.append(0)
+
+            if (i + 1) % 500 == 0 or (i + 1) == len(test_df):
+                print(f"   Processed [{i+1}/{len(test_df)}] test images...")
+
+    test_df['diagnosis'] = predictions
+    os.makedirs(os.path.dirname(os.path.abspath(output_csv)), exist_ok=True)
+    test_df[['id_code', 'diagnosis']].to_csv(output_csv, index=False)
+    print(f"\n✅ Generated test predictions saved to: {output_csv}")
+    print("\nPredicted Class Distribution on Test Set:")
+    print(test_df['diagnosis'].value_counts().sort_index())
+    print("\nSample Predictions:")
+    print(test_df[['id_code', 'diagnosis']].head(10))
+    return test_df
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Train Quantum Transfer Learning Model for Diabetic Retinopathy")
+    parser = argparse.ArgumentParser(description="Train Hybrid Quantum Model on APTOS 2019 Retinal Scans")
     parser.add_argument("--backbone", type=str, default="resnet18", choices=[b.value for b in BackboneType])
     parser.add_argument("--embedding", type=str, default="hadamard", choices=[e.value for e in EmbeddingGateType])
     parser.add_argument("--entangling", type=str, default="cnot", choices=[e.value for e in EntanglingGateType])
     parser.add_argument("--n-qubits", type=int, default=4)
     parser.add_argument("--q-depth", type=int, default=4)
-    parser.add_argument("--epochs", type=int, default=15)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--dataset-dir", type=str, default=None, help="Local dataset path or folder")
-    parser.add_argument("--dataset-kaggle", type=str, default="bhavyasanghavi2348/data-qdit", help="Kaggle dataset slug e.g. bhavyasanghavi2348/data-qdit")
-    parser.add_argument("--use-synthetic", action="store_true", default=False)
-    parser.add_argument("--use-pennylane", action="store_true", default=False)
+    parser.add_argument("--dataset-dir", type=str, default=None, help="Path to aptos2019-blindness-detection directory")
+    parser.add_argument("--fine-tune-backbone", action="store_true", default=True)
+    parser.add_argument("--loss-type", type=str, default="focal", choices=["focal", "label_smoothing", "ce"])
     parser.add_argument("--save-path", type=str, default="quantum_dr_model.pt")
+    parser.add_argument("--use-synthetic", action="store_true", default=False)
     args = parser.parse_args()
 
-    # Determine dataset directory (checks local, kaggle input, kagglehub, or synthetic fallback)
-    dataset_source = args.dataset_dir or args.dataset_kaggle
-    if args.use_synthetic:
-        dataset_source = None
+    quantum_dir = os.path.dirname(os.path.abspath(__file__))
 
-    dataset_dir = None
-    if dataset_source:
-        from quantum.dataset import resolve_dataset_path
-        dataset_dir = resolve_dataset_path(dataset_source)
-
-    if dataset_dir is None or not os.path.exists(dataset_dir):
-        print("⚡ Creating synthetic fundus dataset for immediate demonstration & training...")
-        dataset_dir = create_synthetic_fundus_dataset(
-            output_dir="./data/synthetic_fundus",
-            samples_per_stage=25
-        )
+    # Auto-resolve dataset directory
+    from quantum.dataset import resolve_dataset_path
+    dataset_dir = resolve_dataset_path(args.dataset_dir)
+    print(f"📁 Dataset Directory: {dataset_dir}")
 
     # Build configurations
     circuit_cfg = QuantumCircuitConfig(
@@ -311,33 +411,50 @@ def main():
         batch_size=args.batch_size,
         epochs=args.epochs,
         learning_rate=args.lr,
+        loss_type=args.loss_type,
+        backbone_lr_ratio=0.1 if args.fine_tune_backbone else 0.0,
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
 
-    # Load DataLoaders
+    # 1. Load DataLoaders (Stratified 80/20 train/val split with Graham filter)
+    print("\n🔄 Loading retinal images from train_images/...")
     train_loader, val_loader = get_dataloaders(
         dataset_dir=dataset_dir,
         batch_size=train_cfg.batch_size,
-        apply_graham=train_cfg.apply_graham_filter
+        apply_graham=True
     )
+    print(f"📊 Training Batches: {len(train_loader)} | Validation Batches: {len(val_loader)}")
 
-    # Instantiate hybrid CQ model
-    model = QuantumTransferLearningDR(
-        config=model_cfg,
-        use_pennylane=args.use_pennylane
-    )
+    # 2. Instantiate hybrid CQ model
+    print(f"\n⚛️  Instantiating Quantum Transfer Learning DR Model (Backbone: {args.backbone}, Qubits: {args.n_qubits})...")
+    model = QuantumTransferLearningDR(config=model_cfg)
 
-    # Train
-    _, history, best_metrics = train_model(
+    # 3. Train Model from scratch
+    save_file = os.path.join(quantum_dir, args.save_path) if not os.path.isabs(args.save_path) else args.save_path
+    trained_model, history, best_metrics = train_model(
         model=model,
         train_loader=train_loader,
         val_loader=val_loader,
         config=train_cfg,
-        save_path=args.save_path
+        save_path=save_file
     )
 
-    print("\n" + format_metrics_table(best_metrics))
+    # 4. Display Final Evaluation Metrics Table
+    print("\n" + "=" * 80)
+    print("🎯 FINAL VALIDATION METRICS:")
+    print(format_metrics_table(best_metrics))
+    print("=" * 80)
+
+    # 5. Plot and save learning curves
+    plot_file = os.path.join(quantum_dir, "training_curves.png")
+    plot_learning_curves(history, output_path=plot_file)
+
+    # 6. Run Inference & Testing on test_images/ -> submission.csv
+    device_obj = torch.device(train_cfg.device)
+    submission_file = os.path.join(quantum_dir, "submission.csv")
+    run_inference_on_test_images(trained_model, dataset_dir, device_obj, output_csv=submission_file)
 
 
 if __name__ == "__main__":
     main()
+

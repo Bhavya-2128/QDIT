@@ -134,54 +134,33 @@ def get_fundus_transforms(
 
 def resolve_dataset_path(dataset_source: Optional[str] = None) -> str:
     """
-    Resolves the dataset directory path whether running on Kaggle (/kaggle/input/...),
-    via kagglehub slug (e.g., 'aptos2019-blindness-detection'), or from a local folder.
+    Resolves the dataset directory path locally or from attached sources.
     """
-    # 1. Direct check if path exists locally
+    # 1. Check local directory paths relative to current directory and repo root
+    current_file_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(current_file_dir)
+
+    local_candidates = [
+        dataset_source,
+        os.path.join(repo_root, "aptos2019-blindness-detection"),
+        "./aptos2019-blindness-detection",
+        "../aptos2019-blindness-detection",
+        os.path.join(repo_root, "data", "aptos2019-blindness-detection"),
+        "./data",
+        "../data"
+    ]
+    for candidate in local_candidates:
+        if candidate and os.path.exists(candidate) and os.path.isdir(candidate):
+            # Verify if train.csv or images exist inside candidate
+            if os.path.exists(os.path.join(candidate, "train.csv")) or os.path.exists(os.path.join(candidate, "train_images")):
+                return candidate
+            if any(Path(candidate).glob("*.png")) or any(Path(candidate).glob("*.jpg")):
+                return candidate
+
     if dataset_source and os.path.exists(dataset_source):
         return dataset_source
 
-    # 2. Check /kaggle/input recursively for dataset containing train.csv or images
-    if os.path.exists("/kaggle/input"):
-        # Search all subdirectories in /kaggle/input for train.csv
-        for root, dirs, files in os.walk("/kaggle/input"):
-            if "train.csv" in files or "train_images" in dirs:
-                print(f"📦 Auto-discovered attached Kaggle dataset at: {root}")
-                return root
-
-    # 3. Extract clean competition or dataset slug if a full path was passed
-    clean_slug = dataset_source.strip() if dataset_source else "aptos2019-blindness-detection"
-    clean_slug = clean_slug.replace("/kaggle/input/competitions/", "").replace("/kaggle/input/", "")
-
-    try:
-        import kagglehub
-        if "/" not in clean_slug or "aptos2019" in clean_slug:
-            try:
-                print(f"📥 Accessing Kaggle competition '{clean_slug}' via kagglehub...")
-                comp_path = kagglehub.competition_download(clean_slug)
-                print(f"✅ Kagglehub competition available at: {comp_path}")
-                return comp_path
-            except Exception as comp_err:
-                print(f"⚠️  Competition download failed: {comp_err}")
-                print("🔄 Trying dataset_download fallback...")
-
-        print(f"📥 Accessing Kaggle dataset '{clean_slug}' via kagglehub...")
-        downloaded_path = kagglehub.dataset_download(clean_slug)
-        print(f"✅ Kagglehub dataset available at: {downloaded_path}")
-        return downloaded_path
-    except Exception as e:
-        print(f"⚠️  kagglehub resolution failed: {e}")
-
-    # Fallback to standard Kaggle paths
-    for fallback_path in [
-        "/kaggle/input/aptos2019-blindness-detection",
-        "/kaggle/input/competitions/aptos2019-blindness-detection",
-        "/kaggle/input/data-qdit"
-    ]:
-        if os.path.exists(fallback_path):
-            return fallback_path
-
-    return dataset_source or "./data/synthetic_fundus"
+    return dataset_source or os.path.join(repo_root, "aptos2019-blindness-detection")
 
 
 class DiabeticRetinopathyDataset(Dataset):
@@ -490,3 +469,57 @@ def get_dataloaders(
     )
 
     return train_loader, val_loader
+
+
+class APTOSInferenceDataset(Dataset):
+    """
+    Dataset for unlabeled or evaluation test scans (e.g. test_images/ with test.csv).
+    """
+    def __init__(self, dataset_dir: str, image_size: Tuple[int, int] = (224, 224), apply_graham: bool = True):
+        import pandas as pd
+        resolved = resolve_dataset_path(dataset_dir)
+        self.root_dir = Path(resolved)
+        self.transform = get_fundus_transforms(image_size=image_size, is_training=False, apply_graham=apply_graham)
+        self.image_paths: List[Path] = []
+        self.id_codes: List[str] = []
+
+        test_csv_path = self.root_dir / "test.csv"
+        test_img_dir = self.root_dir / "test_images"
+        if not test_img_dir.exists():
+            test_img_dir = self.root_dir / "test"
+        if not test_img_dir.exists():
+            test_img_dir = self.root_dir
+
+        if test_csv_path.exists():
+            df = pd.read_csv(test_csv_path)
+            img_col = next((c for c in ['id_code', 'image', 'image_id', 'filename'] if c in df.columns), df.columns[0])
+            for _, row in df.iterrows():
+                id_val = str(row[img_col])
+                name = id_val if id_val.endswith(('.png', '.jpg', '.jpeg')) else f"{id_val}.png"
+                p = test_img_dir / name
+                if not p.exists():
+                    for ext in ['.jpg', '.jpeg', '.tiff']:
+                        p_alt = test_img_dir / f"{id_val}{ext}"
+                        if p_alt.exists():
+                            p = p_alt
+                            break
+                self.image_paths.append(p)
+                self.id_codes.append(id_val)
+        else:
+            for ext in ("*.png", "*.jpg", "*.jpeg"):
+                for p in test_img_dir.glob(ext):
+                    self.image_paths.append(p)
+                    self.id_codes.append(p.stem)
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, str]:
+        p = self.image_paths[idx]
+        if p.exists():
+            image = Image.open(p).convert("RGB")
+            tensor = self.transform(image)
+        else:
+            tensor = torch.zeros(3, 224, 224)
+        return tensor, self.id_codes[idx]
+

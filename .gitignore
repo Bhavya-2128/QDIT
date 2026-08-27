@@ -8,6 +8,7 @@ __pycache__/
 env/
 venv/
 ENV/
+aptos2019-blindness-detection/
 
 # Checkpoints and models
 *.pt
