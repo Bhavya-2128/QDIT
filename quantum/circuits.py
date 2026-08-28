@@ -10,8 +10,17 @@ from __future__ import annotations
 
 import sys
 from typing import Callable, Dict, List, Optional, Tuple, Any
+try:
+    import pennylane as qml
+except ImportError:
+    print("\n" + "=" * 80)
+    print("⚠️  PennyLane is not installed in the currently active Python interpreter!")
+    print("👉 Please activate the project's virtual environment:")
+    print("       source .venv/bin/activate")
+    print("   Or run directly with:")
+    print(f"       .venv/bin/python {' '.join(sys.argv)}")
+    print("=" * 80 + "\n")
 import numpy as np
-import pennylane as qml
 import torch
 
 from quantum.config import EmbeddingGateType, EntanglingGateType, QuantumCircuitConfig

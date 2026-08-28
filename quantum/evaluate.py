@@ -9,6 +9,13 @@ Implements:
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from typing import Dict, List, Optional, Tuple, Union, Any
 import numpy as np
 from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
@@ -17,6 +24,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from quantum.config import DR_STAGE_LABELS
+
 
 
 def compute_metrics(
@@ -166,3 +174,97 @@ def format_metrics_table(metrics: Dict) -> str:
         )
 
     return "\n".join(lines)
+
+
+def main():
+    import argparse
+    import os
+    import sys
+    from pathlib import Path
+
+    # Add project root to sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+    from quantum.config import ModelConfig
+    from quantum.dataset import get_dataloaders, resolve_dataset_path
+    from quantum.models import QuantumTransferLearningDR
+    from quantum.train import run_inference_on_test_images
+
+    parser = argparse.ArgumentParser(description="Evaluate Quantum Transfer Learning Model on 5-Stage Retinal Dataset & test_images")
+    parser.add_argument("--checkpoint", type=str, default="quantum/quantum_dr_model.pt", help="Path to trained model checkpoint (.pt)")
+    parser.add_argument("--dataset-dir", type=str, default="aptos2019-blindness-detection", help="Path to APTOS / fundus dataset directory")
+    parser.add_argument("--batch-size", type=int, default=32, help="Batch size for validation loader")
+    parser.add_argument("--output-csv", type=str, default="quantum/submission.csv", help="Output path for test_images predictions")
+    args = parser.parse_args()
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"🚀 [EVALUATION] Active Device: {device.upper()}")
+
+    # 1. Resolve dataset directory
+    resolved_dir = resolve_dataset_path(args.dataset_dir)
+    print(f"📁 Dataset Directory: {resolved_dir}")
+
+    # 2. Instantiate Model
+    model = QuantumTransferLearningDR(config=ModelConfig())
+
+    # 3. Load checkpoint if exists
+    checkpoint_path = args.checkpoint
+    if not os.path.isabs(checkpoint_path):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        alt_path = os.path.join(current_dir, checkpoint_path)
+        if not os.path.exists(checkpoint_path) and os.path.exists(alt_path):
+            checkpoint_path = alt_path
+
+    if os.path.exists(checkpoint_path):
+        print(f"📦 Loading weights from checkpoint: {checkpoint_path}")
+        try:
+            ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        except TypeError:
+            ckpt = torch.load(checkpoint_path, map_location=device)
+        state_dict = ckpt["model_state_dict"] if "model_state_dict" in ckpt else ckpt
+        model.load_state_dict(state_dict, strict=False)
+    else:
+        print(f"⚠️ Checkpoint not found at {checkpoint_path}. Evaluating with initial weights.")
+
+    model.to(device)
+
+    # 4. Evaluate on Validation Set (Stages 0 to 4)
+    print("\n🔄 Loading validation set (Stages 0 to 4)...")
+    try:
+        _, val_loader = get_dataloaders(
+            dataset_dir=resolved_dir,
+            batch_size=args.batch_size,
+            apply_graham=True
+        )
+        print(f"📊 Validation Batches: {len(val_loader)}")
+        metrics, avg_loss = evaluate_model(model, val_loader, device=device)
+
+        print("\n" + "=" * 80)
+        print("🎯 VALIDATION SET EVALUATION METRICS (Stages 0 to 4):")
+        print(format_metrics_table(metrics))
+        print("=" * 80)
+        print("\nConfusion Matrix (5x5):")
+        print(metrics["confusion_matrix"])
+    except Exception as e:
+        print(f"⚠️ Validation set evaluation skipped: {e}")
+
+    # 5. Run inference on test_images/ folder
+    test_img_dir = os.path.join(resolved_dir, "test_images")
+    if os.path.exists(test_img_dir):
+        print("\n" + "=" * 80)
+        print(f"🔍 Evaluating and generating predictions for all images in {test_img_dir}...")
+        print("=" * 80)
+        device_obj = torch.device(device)
+        run_inference_on_test_images(
+            model=model,
+            dataset_dir=resolved_dir,
+            device=device_obj,
+            output_csv=args.output_csv
+        )
+    else:
+        print(f"ℹ️ No test_images folder found at {test_img_dir}")
+
+
+if __name__ == "__main__":
+    main()
+

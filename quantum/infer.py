@@ -56,7 +56,10 @@ class QuantumDRPredictor:
         )
 
         if checkpoint_path and Path(checkpoint_path).exists():
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            try:
+                checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+            except TypeError:
+                checkpoint = torch.load(checkpoint_path, map_location=self.device)
             state_dict = checkpoint["model_state_dict"] if "model_state_dict" in checkpoint else checkpoint
             self.model.load_state_dict(state_dict, strict=False)
             print(f"Loaded checkpoint from: {checkpoint_path}")
